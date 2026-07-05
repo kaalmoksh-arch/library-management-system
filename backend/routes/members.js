@@ -1,5 +1,5 @@
 const express = require("express");
-const db      = require("../database");
+const { query } = require("../database");
 const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
@@ -9,27 +9,29 @@ router.use(authenticate);
 router.get("/", async (req, res, next) => {
   try {
     const { search, status } = req.query;
-    let sql = "SELECT * FROM members WHERE 1=1";
     const params = [];
+    let where = "WHERE 1=1";
 
     if (search) {
-      sql += " AND (name LIKE ? OR email LIKE ? OR member_id LIKE ?)";
-      const like = `%${search}%`;
-      params.push(like, like, like);
+      params.push(`%${search}%`);
+      where += ` AND (name ILIKE $${params.length} OR email ILIKE $${params.length} OR member_id ILIKE $${params.length})`;
     }
-    if (status) { sql += " AND status = ?"; params.push(status); }
-    sql += " ORDER BY name ASC";
+    if (status) {
+      params.push(status);
+      where += ` AND status = $${params.length}`;
+    }
 
-    res.json(await db.all(sql, params));
+    const { rows } = await query(`SELECT * FROM members ${where} ORDER BY name ASC`, params);
+    res.json(rows);
   } catch (err) { next(err); }
 });
 
 // GET /api/members/:id
 router.get("/:id", async (req, res, next) => {
   try {
-    const member = await db.get("SELECT * FROM members WHERE id = ?", [req.params.id]);
-    if (!member) return res.status(404).json({ error: "Member not found" });
-    res.json(member);
+    const { rows } = await query("SELECT * FROM members WHERE id = $1", [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: "Member not found" });
+    res.json(rows[0]);
   } catch (err) { next(err); }
 });
 
@@ -41,17 +43,17 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: "name and email are required" });
 
     // Generate member ID: LIB-00001
-    const last = await db.get("SELECT id FROM members ORDER BY id DESC LIMIT 1");
-    const num  = last ? last.id + 1 : 1;
+    const { rows: last } = await query("SELECT id FROM members ORDER BY id DESC LIMIT 1");
+    const num       = last[0] ? last[0].id + 1 : 1;
     const member_id = `LIB-${String(num).padStart(5, "0")}`;
 
-    const result = await db.run(
-      "INSERT INTO members (name, email, phone, address, member_id) VALUES (?, ?, ?, ?, ?)",
+    const { rows } = await query(
+      "INSERT INTO members (name, email, phone, address, member_id) VALUES ($1,$2,$3,$4,$5) RETURNING *",
       [name, email, phone || null, address || null, member_id]
     );
-    res.status(201).json(await db.get("SELECT * FROM members WHERE id = ?", [result.lastID]));
+    res.status(201).json(rows[0]);
   } catch (err) {
-    if (err.message?.includes("UNIQUE")) return res.status(409).json({ error: "Email already registered" });
+    if (err.code === "23505") return res.status(409).json({ error: "Email already registered" });
     next(err);
   }
 });
@@ -59,12 +61,13 @@ router.post("/", async (req, res, next) => {
 // PUT /api/members/:id
 router.put("/:id", async (req, res, next) => {
   try {
-    const member = await db.get("SELECT * FROM members WHERE id = ?", [req.params.id]);
+    const { rows: existing } = await query("SELECT * FROM members WHERE id = $1", [req.params.id]);
+    const member = existing[0];
     if (!member) return res.status(404).json({ error: "Member not found" });
 
     const { name, email, phone, address, status } = req.body;
-    await db.run(
-      "UPDATE members SET name=?, email=?, phone=?, address=?, status=? WHERE id=?",
+    const { rows } = await query(
+      "UPDATE members SET name=$1, email=$2, phone=$3, address=$4, status=$5 WHERE id=$6 RETURNING *",
       [
         name    ?? member.name,
         email   ?? member.email,
@@ -74,23 +77,23 @@ router.put("/:id", async (req, res, next) => {
         req.params.id,
       ]
     );
-    res.json(await db.get("SELECT * FROM members WHERE id = ?", [req.params.id]));
+    res.json(rows[0]);
   } catch (err) { next(err); }
 });
 
 // DELETE /api/members/:id
 router.delete("/:id", async (req, res, next) => {
   try {
-    const member = await db.get("SELECT * FROM members WHERE id = ?", [req.params.id]);
-    if (!member) return res.status(404).json({ error: "Member not found" });
+    const { rows: existing } = await query("SELECT * FROM members WHERE id = $1", [req.params.id]);
+    if (!existing[0]) return res.status(404).json({ error: "Member not found" });
 
-    const active = await db.get(
-      "SELECT id FROM borrows WHERE member_id = ? AND status = 'borrowed' LIMIT 1",
+    const { rows: active } = await query(
+      "SELECT id FROM borrows WHERE member_id = $1 AND status = 'borrowed' LIMIT 1",
       [req.params.id]
     );
-    if (active) return res.status(400).json({ error: "Cannot delete member with active borrows" });
+    if (active[0]) return res.status(400).json({ error: "Cannot delete member with active borrows" });
 
-    await db.run("DELETE FROM members WHERE id = ?", [req.params.id]);
+    await query("DELETE FROM members WHERE id = $1", [req.params.id]);
     res.json({ message: "Member deleted" });
   } catch (err) { next(err); }
 });
@@ -98,12 +101,10 @@ router.delete("/:id", async (req, res, next) => {
 // GET /api/members/:id/borrows
 router.get("/:id/borrows", async (req, res, next) => {
   try {
-    const rows = await db.all(
+    const { rows } = await query(
       `SELECT b.*, bk.title, bk.author, bk.isbn
-       FROM borrows b
-       JOIN books bk ON bk.id = b.book_id
-       WHERE b.member_id = ?
-       ORDER BY b.borrow_date DESC`,
+       FROM borrows b JOIN books bk ON bk.id = b.book_id
+       WHERE b.member_id = $1 ORDER BY b.borrow_date DESC`,
       [req.params.id]
     );
     res.json(rows);

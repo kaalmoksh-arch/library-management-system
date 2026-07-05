@@ -1,7 +1,7 @@
 const express = require("express");
 const bcrypt  = require("bcryptjs");
 const jwt     = require("jsonwebtoken");
-const db      = require("../database");
+const { query } = require("../database");
 const { authenticate, adminOnly, SECRET } = require("../middleware/auth");
 
 const router = express.Router();
@@ -13,7 +13,8 @@ router.post("/login", async (req, res, next) => {
     if (!email || !password)
       return res.status(400).json({ error: "Email and password are required" });
 
-    const user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
+    const { rows } = await query("SELECT * FROM users WHERE email = $1", [email]);
+    const user = rows[0];
     if (!user || !bcrypt.compareSync(password, user.password))
       return res.status(401).json({ error: "Invalid credentials" });
 
@@ -31,7 +32,7 @@ router.get("/me", authenticate, (req, res) => {
   res.json({ user: req.user });
 });
 
-// POST /api/auth/register  (admin only)
+// POST /api/auth/register (admin only)
 router.post("/register", authenticate, adminOnly, async (req, res, next) => {
   try {
     const { name, email, password, role = "librarian" } = req.body;
@@ -39,13 +40,13 @@ router.post("/register", authenticate, adminOnly, async (req, res, next) => {
       return res.status(400).json({ error: "name, email, and password are required" });
 
     const hash = bcrypt.hashSync(password, 10);
-    const result = await db.run(
-      "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
+    const { rows } = await query(
+      "INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id",
       [name, email, hash, role]
     );
-    res.status(201).json({ id: result.lastID, name, email, role });
+    res.status(201).json({ id: rows[0].id, name, email, role });
   } catch (err) {
-    if (err.message?.includes("UNIQUE")) return res.status(409).json({ error: "Email already exists" });
+    if (err.code === "23505") return res.status(409).json({ error: "Email already exists" });
     next(err);
   }
 });
