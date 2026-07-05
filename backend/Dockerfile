@@ -3,7 +3,9 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Copy package files and install production dependencies only
+# sqlite3 needs python3 + make + g++ to compile its native binding
+RUN apk add --no-cache python3 make g++
+
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
@@ -12,16 +14,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Create a non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Copy installed node_modules from deps stage
 COPY --from=deps /app/node_modules ./node_modules
-
-# Copy application source
 COPY . .
 
-# SQLite database will be stored in /app/data (mount a volume here in production)
+# SQLite database stored in /app/data — mount a volume here in production
 RUN mkdir -p /app/data && chown -R appuser:appgroup /app
 
 USER appuser
