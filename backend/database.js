@@ -1,6 +1,8 @@
 const { Pool } = require("pg");
 const bcrypt   = require("bcryptjs");
 
+console.log("Checking DATABASE_URL value:", process.env.DATABASE_URL ? "Exists/Loaded" : "UNDEFINED");
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
