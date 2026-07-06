@@ -1,14 +1,13 @@
 const { Pool } = require("pg");
-const bcrypt = require("bcryptjs");
+const bcrypt   = require("bcryptjs");
+
+const DB_URL = process.env.DATABASE_URL
+  || "postgresql://neondb_owner:npg_jAqStpZ74BMx@ep-ancient-butterfly-aob0xid2-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
 
 let pool;
-
 function getPool() {
   if (!pool) {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL ||  process.env.POSTGRES_URL,
-      ssl: { rejectUnauthorized: false },
-    });
+    pool = new Pool({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
   }
   return pool;
 }
@@ -66,7 +65,6 @@ async function initDB() {
     );
   `);
 
-  // Seed admin
   const { rows } = await query("SELECT id FROM users WHERE role='admin' LIMIT 1");
   if (rows.length === 0) {
     const hash = bcrypt.hashSync("admin123", 10);
@@ -74,6 +72,7 @@ async function initDB() {
       "INSERT INTO users (name,email,password,role) VALUES ($1,$2,$3,$4)",
       ["Admin", "admin@library.com", hash, "admin"]
     );
+    console.log("Default admin created: admin@library.com / admin123");
   }
 }
 

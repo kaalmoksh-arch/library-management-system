@@ -1,11 +1,14 @@
 const { Pool } = require("pg");
 const bcrypt   = require("bcryptjs");
 
-console.log("Checking DATABASE_URL value:", process.env.DATABASE_URL ? "Exists/Loaded" : "UNDEFINED");
+// Hardcode the string directly into the variable to bypass any environment variable bugs
+const connectionString = "postgresql://neondb_owner:npg_jAqStpZ74BMx@ep-ancient-butterfly-aob0xid2-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+  connectionString: connectionString,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Convenience query helper
